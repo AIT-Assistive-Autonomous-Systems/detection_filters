@@ -29,8 +29,21 @@ private:
   {
     Detection3DArray result;
     result.header = msg->header;
+
+    tf2::Transform transform;
+    try {
+      rclcpp::Time t = msg->header.stamp;
+      auto timeout = Duration::from_seconds(get_parameter("tf_timeout").as_double());
+      auto transform_msg = tf_buffer_->lookupTransform(
+        get_parameter("frame_id").as_string(), msg->header.frame_id, t, timeout);
+      tf2::fromMsg(transform_msg.transform, transform);
+    } catch (const tf2::TransformException & e) {
+      RCLCPP_ERROR(get_logger(), "failed to lookup transform to ground: %s", e.what());
+      return;
+    }
+
     for (auto & detection : msg->detections) {
-      if (is_pose_valid(msg->header, detection.results[0].pose.pose)) {
+      if (is_pose_valid(transform, detection.results[0].pose.pose)) {
         result.detections.push_back(detection);
       }
     }
@@ -78,20 +91,8 @@ public:
     return true;
   }
 
-  bool is_pose_valid(const std_msgs::msg::Header & header, const Pose & pose_msg)
+  bool is_pose_valid(const tf2::Transform & transform, const Pose & pose_msg)
   {
-    tf2::Transform transform;
-    try {
-      rclcpp::Time t = header.stamp;
-      auto timeout = Duration::from_seconds(get_parameter("tf_timeout").as_double());
-      auto transform_msg = tf_buffer_->lookupTransform(
-        get_parameter("frame_id").as_string(), header.frame_id, t, timeout);
-      tf2::fromMsg(transform_msg.transform, transform);
-    } catch (const tf2::TransformException & e) {
-      RCLCPP_ERROR(get_logger(), "failed to lookup transform to ground: %s", e.what());
-      return false;
-    }
-
     tf2::Transform pose;
     tf2::fromMsg(pose_msg, pose);
     pose = transform * pose;
